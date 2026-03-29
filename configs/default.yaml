@@ -1,0 +1,41 @@
+dataset:
+  root: "C:/Users/DELL/OneDrive/Desktop/Practicals/Projects/DefectFill/dataset"
+  category: "carpet"
+  image_size: 384
+  batch_size: 4
+
+synthesis:
+  enabled: true
+  mode: "anogan"
+  output_dir: "./artifacts/synthetic"
+  num_augmented_per_image: 2
+  diffusion_prompt: "industrial metallic texture with tiny scratches and dents"
+  diffusion_negative_prompt: "cartoon, abstract, blurry, unrealistic"
+  inpaint_steps: 25
+  guidance_scale: 7.5
+  scratch_density: 0.25
+  dent_density: 0.15
+  anogan:
+    latent_dim: 256
+    attention_channels: 64
+
+patchcore:
+  memory_bank_path: "./artifacts/memory_bank/carpet_memory.npy"
+  layer_names: []
+  coreset_ratio: 0.1
+  knn_k: 1
+
+inference:
+  max_latency_ms: 80
+  defect_score_threshold: 1.15
+  output_dir: "./artifacts/inference"
+  heatmap_thresholds: [0.25, 0.45, 0.65, 0.85]
+  save_visualizations: true
+
+stream:
+  target_fps: 12
+
+optimization:
+  compile_graph: true
+  export_tflite: true
+  tflite_path: "./artifacts/tflite/patchcore_distance.tflite"

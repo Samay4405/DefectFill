@@ -1,0 +1,47 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-grad-a: #f2f7f3;
+  --bg-grad-b: #dfe7df;
+  --panel: #eef2ee;
+  --line: #cdd6cd;
+  --text: #1f2a28;
+  --muted: #5f706a;
+  --alert: #f45b3d;
+  --ok: #2f7066;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 700px at 10% 0%, rgba(47, 112, 102, 0.12), transparent 60%),
+    radial-gradient(1000px 600px at 90% 10%, rgba(244, 91, 61, 0.10), transparent 55%),
+    linear-gradient(160deg, var(--bg-grad-a), var(--bg-grad-b));
+}
+
+.metric {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.alert-pulse {
+  animation: pulse 1.15s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(244, 91, 61, 0.0); }
+  50% { transform: scale(1.01); box-shadow: 0 0 26px rgba(244, 91, 61, 0.32); }
+  100% { transform: scale(1); box-shadow: 0 0 0 rgba(244, 91, 61, 0.0); }
+}
