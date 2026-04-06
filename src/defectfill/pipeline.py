@@ -72,8 +72,12 @@ class DefectFillPipeline:
         dcfg = self.cfg["dataset"]
         scfg = self.cfg["synthesis"]
 
-        normal_paths = list_mvtec_images(dcfg["root"], dcfg["category"], split="train", defect_type="good")
-        ds = make_dataset(normal_paths, dcfg["image_size"], dcfg["batch_size"], shuffle=False)
+        normal_paths = list_mvtec_images(
+            dcfg["root"], dcfg["category"], split="train", defect_type="good"
+        )
+        ds = make_dataset(
+            normal_paths, dcfg["image_size"], dcfg["batch_size"], shuffle=False
+        )
 
         out_dir = Path(scfg["output_dir"])
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -98,9 +102,18 @@ class DefectFillPipeline:
                             scfg["diffusion_negative_prompt"],
                         )
 
-                    img_path = output / f"{dcfg['category']}_synth_{idx:04d}_{i:04d}_{j:02d}.png"
-                    mask_path = output / f"{dcfg['category']}_synth_{idx:04d}_{i:04d}_{j:02d}_mask.png"
-                    cv2.imwrite(str(img_path), (synth_img.numpy()[..., ::-1] * 255).astype(np.uint8))
+                    img_path = (
+                        output
+                        / f"{dcfg['category']}_synth_{idx:04d}_{i:04d}_{j:02d}.png"
+                    )
+                    mask_path = (
+                        output
+                        / f"{dcfg['category']}_synth_{idx:04d}_{i:04d}_{j:02d}_mask.png"
+                    )
+                    cv2.imwrite(
+                        str(img_path),
+                        (synth_img.numpy()[..., ::-1] * 255).astype(np.uint8),
+                    )
                     cv2.imwrite(str(mask_path), (mask.numpy() * 255).astype(np.uint8))
             idx += 1
 
@@ -109,8 +122,12 @@ class DefectFillPipeline:
         pcfg = self.cfg["patchcore"]
         ocfg = self.cfg["optimization"]
 
-        normal_paths = list_mvtec_images(dcfg["root"], dcfg["category"], split="train", defect_type="good")
-        ds = make_dataset(normal_paths, dcfg["image_size"], dcfg["batch_size"], shuffle=False)
+        normal_paths = list_mvtec_images(
+            dcfg["root"], dcfg["category"], split="train", defect_type="good"
+        )
+        ds = make_dataset(
+            normal_paths, dcfg["image_size"], dcfg["batch_size"], shuffle=False
+        )
 
         all_patches = []
         for batch in ds:
@@ -127,7 +144,9 @@ class DefectFillPipeline:
             export_distance_tflite(self.patchcore.memory_bank, ocfg["tflite_path"])
             tflite_path = ocfg["tflite_path"]
 
-        return PipelineArtifacts(memory_bank_path=pcfg["memory_bank_path"], tflite_path=tflite_path)
+        return PipelineArtifacts(
+            memory_bank_path=pcfg["memory_bank_path"], tflite_path=tflite_path
+        )
 
     def _ensure_memory_loaded(self):
         if self._memory_loaded:
@@ -166,7 +185,9 @@ class DefectFillPipeline:
             raise ValueError("No images available to calibrate elbow threshold.")
 
         ordered = np.sort(np.asarray(scores, dtype=np.float32))
-        points = np.stack([np.linspace(0.0, 1.0, ordered.size, dtype=np.float32), ordered], axis=1)
+        points = np.stack(
+            [np.linspace(0.0, 1.0, ordered.size, dtype=np.float32), ordered], axis=1
+        )
         distances = np.zeros_like(ordered, dtype=np.float32)
         if ordered.size == 1:
             threshold = float(ordered[0])
@@ -182,7 +203,10 @@ class DefectFillPipeline:
                 elbow_idx = int(np.argmin(np.abs(ordered - np.median(ordered))))
             else:
                 offsets = points - start
-                distances = np.abs(direction[0] * offsets[:, 1] - direction[1] * offsets[:, 0]) / length
+                distances = (
+                    np.abs(direction[0] * offsets[:, 1] - direction[1] * offsets[:, 0])
+                    / length
+                )
                 elbow_idx = int(np.argmax(distances))
                 threshold = float(ordered[elbow_idx])
 
@@ -206,7 +230,9 @@ class DefectFillPipeline:
         source_path: str,
         threshold: float,
     ):
-        output_dir = Path(self.cfg["inference"].get("output_dir", "./artifacts/inference"))
+        output_dir = Path(
+            self.cfg["inference"].get("output_dir", "./artifacts/inference")
+        )
         output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = output_dir / "anomaly_records.csv"
 
@@ -214,8 +240,18 @@ class DefectFillPipeline:
         with csv_path.open("a", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             if not exists:
-                writer.writerow(["anomaly_id", "score", "threshold", "source_path", "timestamp_ns"])
-            writer.writerow([anomaly_id, float(score), float(threshold), source_path, int(time.time_ns())])
+                writer.writerow(
+                    ["anomaly_id", "score", "threshold", "source_path", "timestamp_ns"]
+                )
+            writer.writerow(
+                [
+                    anomaly_id,
+                    float(score),
+                    float(threshold),
+                    source_path,
+                    int(time.time_ns()),
+                ]
+            )
 
     @tf.function(jit_compile=True)
     def _infer_step(self, x: tf.Tensor):
@@ -228,13 +264,21 @@ class DefectFillPipeline:
         scores = self.patchcore.score_patches(patches)
         return scores, tf.stack([h, w])
 
-    def infer_frame(self, frame_rgb: np.ndarray) -> dict[str, np.ndarray | float | bool]:
+    def infer_frame(
+        self, frame_rgb: np.ndarray
+    ) -> dict[str, np.ndarray | float | bool]:
         self._ensure_memory_loaded()
         dcfg = self.cfg["dataset"]
         score_threshold = self.get_anomaly_threshold()
 
-        resized = cv2.resize(frame_rgb, (dcfg["image_size"], dcfg["image_size"]), interpolation=cv2.INTER_AREA)
-        tensor = tf.convert_to_tensor(resized, dtype=tf.float32)[tf.newaxis, ...] / 255.0
+        resized = cv2.resize(
+            frame_rgb,
+            (dcfg["image_size"], dcfg["image_size"]),
+            interpolation=cv2.INTER_AREA,
+        )
+        tensor = (
+            tf.convert_to_tensor(resized, dtype=tf.float32)[tf.newaxis, ...] / 255.0
+        )
 
         t0 = time.perf_counter()
         (image_scores, patch_scores), hw = self._infer_step(tensor)
@@ -261,14 +305,18 @@ class DefectFillPipeline:
             "heatmap_overlay": overlay_u8,
         }
 
-    def infer_folder(self, defect_type: str = "good", use_elbow_threshold: bool = False) -> dict[str, float]:
+    def infer_folder(
+        self, defect_type: str = "good", use_elbow_threshold: bool = False
+    ) -> dict[str, float]:
         dcfg = self.cfg["dataset"]
         icfg = self.cfg["inference"]
         pcfg = self.cfg["patchcore"]
 
         self.patchcore.load(pcfg["memory_bank_path"])
 
-        paths = list_mvtec_images(dcfg["root"], dcfg["category"], split="test", defect_type=defect_type)
+        paths = list_mvtec_images(
+            dcfg["root"], dcfg["category"], split="test", defect_type=defect_type
+        )
         if use_elbow_threshold:
             threshold = self.calibrate_elbow_threshold(paths)
             print(f"Calibrated elbow threshold: {threshold:.4f}")

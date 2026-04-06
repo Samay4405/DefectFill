@@ -8,12 +8,16 @@ from .pipeline import DefectFillPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="DefectFill: TensorFlow industrial anomaly pipeline")
+    p = argparse.ArgumentParser(
+        description="DefectFill: TensorFlow industrial anomaly pipeline"
+    )
     p.add_argument("--config", type=str, default="configs/default.yaml")
 
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("synthesize", help="Run phase-1 synthetic defect generation")
-    sub.add_parser("build-memory", help="Build PatchCore memory bank from nominal train images")
+    sub.add_parser(
+        "build-memory", help="Build PatchCore memory bank from nominal train images"
+    )
 
     infer = sub.add_parser("infer", help="Run anomaly inference on test split")
     infer.add_argument("--defect-type", type=str, default="good")

@@ -43,7 +43,9 @@ def create_app(config_path: str = "configs/default.yaml") -> FastAPI:
         try:
             while True:
                 try:
-                    message = await asyncio.wait_for(websocket.receive_text(), timeout=frame_interval_s)
+                    message = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=frame_interval_s
+                    )
                     command = message.strip().lower()
                     if command in {"ack", "acknowledge", "resume"}:
                         service.acknowledge()

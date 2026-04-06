@@ -19,7 +19,9 @@ class StreamInferenceService:
         self._anomaly_counter = 0
         self._last_source_path = ""
 
-        threshold_method = str(self.cfg.get("inference", {}).get("threshold_method", "fixed")).lower()
+        threshold_method = str(
+            self.cfg.get("inference", {}).get("threshold_method", "fixed")
+        ).lower()
         if self._camera_paths and threshold_method == "elbow":
             threshold = self.pipeline.calibrate_elbow_threshold(self._camera_paths)
             print(f"[stream] Calibrated elbow threshold: {threshold:.4f}")
@@ -70,7 +72,13 @@ class StreamInferenceService:
                 ],
                 axis=-1,
             ).astype(np.uint8)
-            cv2.rectangle(base, (size // 5, size // 5), (size * 4 // 5, size * 4 // 5), (170, 170, 170), 2)
+            cv2.rectangle(
+                base,
+                (size // 5, size // 5),
+                (size * 4 // 5, size * 4 // 5),
+                (170, 170, 170),
+                2,
+            )
             return base
 
         path = self._camera_paths[self._idx]
