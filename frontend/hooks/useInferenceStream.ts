@@ -9,6 +9,12 @@ export type StreamPoint = {
   latencyMs: number;
 };
 
+export type ElbowProfile = {
+  threshold: number;
+  elbowIndex: number;
+  points: Array<[number, number]>;
+};
+
 export type StreamState = {
   connected: boolean;
   frameBitmap: ImageBitmap | null;
@@ -16,13 +22,16 @@ export type StreamState = {
   score: number;
   latencyMs: number;
   defect: boolean;
+  threshold: number;
+  latestAnomalyId: string;
   history: StreamPoint[];
+  elbowProfile: ElbowProfile | null;
   persistentAlert: boolean;
   acknowledgeAlert: () => void;
 };
 
 async function decodeImage(bytes: Uint8Array): Promise<ImageBitmap> {
-  const blob = new Blob([bytes.buffer as ArrayBuffer]);
+  const blob = new Blob([bytes]);
   return await createImageBitmap(blob);
 }
 
@@ -33,13 +42,19 @@ export function useInferenceStream(wsUrl: string): StreamState {
   const [score, setScore] = useState(0);
   const [latencyMs, setLatencyMs] = useState(0);
   const [defect, setDefect] = useState(false);
+  const [threshold, setThreshold] = useState(0);
+  const [latestAnomalyId, setLatestAnomalyId] = useState("");
   const [history, setHistory] = useState<StreamPoint[]>([]);
+  const [elbowProfile, setElbowProfile] = useState<ElbowProfile | null>(null);
   const [persistentAlert, setPersistentAlert] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const rafRef = useRef<number | null>(null);
 
   const acknowledgeAlert = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send("acknowledge");
+    }
     setPersistentAlert(false);
   }, []);
 
@@ -54,8 +69,44 @@ export function useInferenceStream(wsUrl: string): StreamState {
       ws.send("subscribe");
     };
 
-    ws.onmessage = async (event: MessageEvent<ArrayBuffer>) => {
-      if (!active || typeof event.data === "string") {
+    ws.onmessage = async (event: MessageEvent<ArrayBuffer | string>) => {
+      if (!active) {
+        return;
+      }
+
+      if (typeof event.data === "string") {
+        try {
+          const data = JSON.parse(event.data) as {
+            type?: string;
+            threshold?: number;
+            elbow_index?: number;
+            points?: Array<[number, number]>;
+            anomaly_id?: string;
+            score?: number;
+          };
+
+          if (data.type === "elbow_profile") {
+            setElbowProfile({
+              threshold: Number(data.threshold ?? 0),
+              elbowIndex: Number(data.elbow_index ?? 0),
+              points: Array.isArray(data.points) ? data.points : [],
+            });
+            setThreshold(Number(data.threshold ?? 0));
+          }
+
+          if (data.type === "anomaly_detected") {
+            setPersistentAlert(true);
+            setLatestAnomalyId(String(data.anomaly_id ?? ""));
+            if (typeof data.threshold === "number") {
+              setThreshold(data.threshold);
+            }
+            if (typeof data.score === "number") {
+              setScore(data.score);
+            }
+          }
+        } catch {
+          // Ignore malformed control message.
+        }
         return;
       }
 
@@ -127,10 +178,26 @@ export function useInferenceStream(wsUrl: string): StreamState {
       score,
       latencyMs,
       defect,
+      threshold,
+      latestAnomalyId,
       history,
+      elbowProfile,
       persistentAlert,
       acknowledgeAlert,
     }),
-    [connected, frameBitmap, heatmapBitmap, score, latencyMs, defect, history, persistentAlert, acknowledgeAlert]
+    [
+      connected,
+      frameBitmap,
+      heatmapBitmap,
+      score,
+      latencyMs,
+      defect,
+      threshold,
+      latestAnomalyId,
+      history,
+      elbowProfile,
+      persistentAlert,
+      acknowledgeAlert,
+    ]
   );
 }

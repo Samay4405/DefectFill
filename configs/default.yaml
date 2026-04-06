@@ -1,5 +1,5 @@
 dataset:
-  root: "C:/Users/DELL/OneDrive/Desktop/Practicals/Projects/DefectFill/dataset"
+  root: "C:/Users/drket/OneDrive/Desktop/Codes/DefectFill/dataset"
   category: "carpet"
   image_size: 384
   batch_size: 4
@@ -28,12 +28,14 @@ patchcore:
 inference:
   max_latency_ms: 80
   defect_score_threshold: 1.15
+  threshold_method: "elbow"
   output_dir: "./artifacts/inference"
   heatmap_thresholds: [0.25, 0.45, 0.65, 0.85]
   save_visualizations: true
 
 stream:
   target_fps: 12
+  source_dir: "./dataset/carpet/test"
 
 optimization:
   compile_graph: true

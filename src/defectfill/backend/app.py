@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -36,10 +36,24 @@ def create_app(config_path: str = "configs/default.yaml") -> FastAPI:
         if service is None:
             service = StreamInferenceService(cfg)
 
-        send_task = None
+        profile = service.get_elbow_profile()
+        if profile is not None:
+            await websocket.send_text(json.dumps({"type": "elbow_profile", **profile}))
 
-        async def loop_send():
+        try:
             while True:
+                try:
+                    message = await asyncio.wait_for(websocket.receive_text(), timeout=frame_interval_s)
+                    command = message.strip().lower()
+                    if command in {"ack", "acknowledge", "resume"}:
+                        service.acknowledge()
+                    continue
+                except asyncio.TimeoutError:
+                    pass
+
+                if service.is_paused:
+                    continue
+
                 out = await service.infer_live()
                 packet = build_packet(
                     frame_rgb=out["frame"],
@@ -49,20 +63,20 @@ def create_app(config_path: str = "configs/default.yaml") -> FastAPI:
                     latency_ms=float(out["latency_ms"]),
                 )
                 await websocket.send_bytes(packet)
-                await asyncio.sleep(frame_interval_s)
 
-        try:
-            send_task = asyncio.create_task(loop_send())
-            while True:
-                # Keep socket alive and allow operator control messages in future.
-                _ = await websocket.receive_text()
+                if bool(out.get("defect", False)):
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "anomaly_detected",
+                                "anomaly_id": str(out.get("anomaly_id", "")),
+                                "score": float(out.get("score", 0.0)),
+                                "threshold": float(out.get("threshold", 0.0)),
+                            }
+                        )
+                    )
         except (WebSocketDisconnect, RuntimeError):
             pass
-        finally:
-            if send_task is not None:
-                send_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await send_task
 
     return app
 

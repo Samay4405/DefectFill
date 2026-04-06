@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     infer = sub.add_parser("infer", help="Run anomaly inference on test split")
     infer.add_argument("--defect-type", type=str, default="good")
+    infer.add_argument("--use-elbow-threshold", action="store_true")
 
     return p
 
@@ -38,7 +39,10 @@ def main():
         return
 
     if args.command == "infer":
-        scores = pipe.infer_folder(defect_type=args.defect_type)
+        scores = pipe.infer_folder(
+            defect_type=args.defect_type,
+            use_elbow_threshold=bool(args.use_elbow_threshold),
+        )
         print(json.dumps(scores, indent=2))
         return
 

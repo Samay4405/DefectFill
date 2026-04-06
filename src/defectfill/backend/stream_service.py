@@ -15,16 +15,43 @@ class StreamInferenceService:
         self.pipeline = DefectFillPipeline(cfg)
         self._camera_paths = self._build_simulated_camera_feed()
         self._idx = 0
+        self._paused = False
+        self._anomaly_counter = 0
+        self._last_source_path = ""
+
+        threshold_method = str(self.cfg.get("inference", {}).get("threshold_method", "fixed")).lower()
+        if self._camera_paths and threshold_method == "elbow":
+            threshold = self.pipeline.calibrate_elbow_threshold(self._camera_paths)
+            print(f"[stream] Calibrated elbow threshold: {threshold:.4f}")
+
+    def get_elbow_profile(self) -> dict[str, object] | None:
+        return self.pipeline.get_elbow_profile()
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def acknowledge(self):
+        self._paused = False
 
     def _build_simulated_camera_feed(self) -> list[str]:
-        dcfg = self.cfg["dataset"]
-        root = Path(dcfg["root"]) / dcfg["category"] / "test"
+        stream_cfg = self.cfg.get("stream", {})
+        source_dir = str(stream_cfg.get("source_dir", "")).strip()
+
+        if source_dir:
+            root = Path(source_dir)
+        else:
+            dcfg = self.cfg["dataset"]
+            root = Path(dcfg["root"]) / dcfg["category"] / "test"
+
         if not root.exists():
             return []
 
-        paths: list[str] = []
-        for defect_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-            paths.extend(sorted(str(x) for x in defect_dir.glob("*.png")))
+        paths = sorted(
+            str(p)
+            for p in root.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}
+        )
 
         if not paths:
             return []
@@ -48,6 +75,7 @@ class StreamInferenceService:
 
         path = self._camera_paths[self._idx]
         self._idx = (self._idx + 1) % len(self._camera_paths)
+        self._last_source_path = path
 
         bgr = cv2.imread(path, cv2.IMREAD_COLOR)
         if bgr is None:
@@ -75,5 +103,23 @@ class StreamInferenceService:
                 "frame": frame,
                 "heatmap_overlay": overlay,
             }
+
+        out_payload: dict[str, object] = dict(out)
+        out_payload["source_path"] = self._last_source_path
+
+        if bool(out_payload["defect"]):
+            self._paused = True
+            self._anomaly_counter += 1
+            anomaly_id = f"A{self._anomaly_counter:06d}"
+            threshold = self.pipeline.get_anomaly_threshold()
+            self.pipeline.save_anomaly_record(
+                anomaly_id=anomaly_id,
+                score=float(out_payload["score"]),
+                source_path=self._last_source_path,
+                threshold=threshold,
+            )
+            out_payload["anomaly_id"] = anomaly_id
+            out_payload["threshold"] = float(threshold)
+
         await asyncio.sleep(0)
-        return out
+        return out_payload

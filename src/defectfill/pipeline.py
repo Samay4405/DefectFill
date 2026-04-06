@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +65,8 @@ class DefectFillPipeline:
 
         self.heatmap = PiecewiseHeatmapGenerator(cfg["inference"]["heatmap_thresholds"])
         self._memory_loaded = False
+        self._anomaly_threshold: float | None = None
+        self._elbow_profile: dict[str, object] | None = None
 
     def run_phase1_synthesis(self):
         dcfg = self.cfg["dataset"]
@@ -135,6 +138,85 @@ class DefectFillPipeline:
         self.patchcore.load(memory_path)
         self._memory_loaded = True
 
+    def set_anomaly_threshold(self, threshold: float):
+        self._anomaly_threshold = float(threshold)
+
+    def get_anomaly_threshold(self) -> float:
+        if self._anomaly_threshold is not None:
+            return float(self._anomaly_threshold)
+        return float(self.cfg["inference"].get("defect_score_threshold", 0.5))
+
+    def score_paths(self, paths: list[str]) -> list[float]:
+        self._ensure_memory_loaded()
+        if not paths:
+            return []
+
+        dcfg = self.cfg["dataset"]
+        ds = make_dataset(paths, dcfg["image_size"], dcfg["batch_size"], shuffle=False)
+
+        scores: list[float] = []
+        for batch in ds:
+            (image_scores, _patch_scores), _hw = self._infer_step(batch)
+            scores.extend(float(v) for v in image_scores.numpy().tolist())
+        return scores
+
+    def calibrate_elbow_threshold(self, paths: list[str]) -> float:
+        scores = self.score_paths(paths)
+        if not scores:
+            raise ValueError("No images available to calibrate elbow threshold.")
+
+        ordered = np.sort(np.asarray(scores, dtype=np.float32))
+        points = np.stack([np.linspace(0.0, 1.0, ordered.size, dtype=np.float32), ordered], axis=1)
+        distances = np.zeros_like(ordered, dtype=np.float32)
+        if ordered.size == 1:
+            threshold = float(ordered[0])
+            elbow_idx = 0
+        else:
+            start = points[0]
+            end = points[-1]
+            direction = end - start
+            length = float(np.linalg.norm(direction))
+
+            if length < 1e-8:
+                threshold = float(np.median(ordered))
+                elbow_idx = int(np.argmin(np.abs(ordered - np.median(ordered))))
+            else:
+                offsets = points - start
+                distances = np.abs(direction[0] * offsets[:, 1] - direction[1] * offsets[:, 0]) / length
+                elbow_idx = int(np.argmax(distances))
+                threshold = float(ordered[elbow_idx])
+
+        self.set_anomaly_threshold(threshold)
+        self._elbow_profile = {
+            "threshold": threshold,
+            "elbow_index": elbow_idx,
+            "points": [[float(p[0]), float(p[1])] for p in points],
+            "distances": [float(d) for d in distances.tolist()],
+        }
+        return threshold
+
+    def get_elbow_profile(self) -> dict[str, object] | None:
+        return self._elbow_profile
+
+    def save_anomaly_record(
+        self,
+        *,
+        anomaly_id: str,
+        score: float,
+        source_path: str,
+        threshold: float,
+    ):
+        output_dir = Path(self.cfg["inference"].get("output_dir", "./artifacts/inference"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = output_dir / "anomaly_records.csv"
+
+        exists = csv_path.exists()
+        with csv_path.open("a", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            if not exists:
+                writer.writerow(["anomaly_id", "score", "threshold", "source_path", "timestamp_ns"])
+            writer.writerow([anomaly_id, float(score), float(threshold), source_path, int(time.time_ns())])
+
     @tf.function(jit_compile=True)
     def _infer_step(self, x: tf.Tensor):
         patch_map = self.extractor.extract_dense_features(x)
@@ -149,7 +231,7 @@ class DefectFillPipeline:
     def infer_frame(self, frame_rgb: np.ndarray) -> dict[str, np.ndarray | float | bool]:
         self._ensure_memory_loaded()
         dcfg = self.cfg["dataset"]
-        score_threshold = float(self.cfg["inference"].get("defect_score_threshold", 0.5))
+        score_threshold = self.get_anomaly_threshold()
 
         resized = cv2.resize(frame_rgb, (dcfg["image_size"], dcfg["image_size"]), interpolation=cv2.INTER_AREA)
         tensor = tf.convert_to_tensor(resized, dtype=tf.float32)[tf.newaxis, ...] / 255.0
@@ -179,7 +261,7 @@ class DefectFillPipeline:
             "heatmap_overlay": overlay_u8,
         }
 
-    def infer_folder(self, defect_type: str = "good") -> dict[str, float]:
+    def infer_folder(self, defect_type: str = "good", use_elbow_threshold: bool = False) -> dict[str, float]:
         dcfg = self.cfg["dataset"]
         icfg = self.cfg["inference"]
         pcfg = self.cfg["patchcore"]
@@ -187,6 +269,9 @@ class DefectFillPipeline:
         self.patchcore.load(pcfg["memory_bank_path"])
 
         paths = list_mvtec_images(dcfg["root"], dcfg["category"], split="test", defect_type=defect_type)
+        if use_elbow_threshold:
+            threshold = self.calibrate_elbow_threshold(paths)
+            print(f"Calibrated elbow threshold: {threshold:.4f}")
         ds = make_dataset(paths, dcfg["image_size"], batch_size=1, shuffle=False)
 
         output_dir = Path(icfg["output_dir"])

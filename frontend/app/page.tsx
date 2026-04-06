@@ -12,7 +12,13 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen p-4 md:p-8">
-      <AlertBanner show={stream.persistentAlert} onAcknowledge={stream.acknowledgeAlert} />
+      <AlertBanner
+        show={stream.persistentAlert}
+        anomalyId={stream.latestAnomalyId}
+        score={stream.score}
+        threshold={stream.threshold}
+        onAcknowledge={stream.acknowledgeAlert}
+      />
 
       <header className="mb-6 rounded-2xl border border-[#c9d2c9] bg-[#eef2ee] p-5 shadow-soft">
         <p className="text-xs uppercase tracking-[0.15em] text-[#5f706a]">Industry 4.0 Smart Manufacturing</p>
@@ -55,6 +61,9 @@ export default function HomePage() {
           score={stream.score}
           latencyMs={stream.latencyMs}
           connected={stream.connected}
+          threshold={stream.threshold}
+          elbowPoints={stream.elbowProfile?.points ?? []}
+          elbowIndex={stream.elbowProfile?.elbowIndex ?? 0}
         />
       </section>
     </main>
